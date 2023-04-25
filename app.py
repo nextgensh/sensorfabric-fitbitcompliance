@@ -9,8 +9,15 @@ from activity import Activity
 from restinghr import Restinghr
 from hrv import Hrv
 from overview import Overview
+from error import Error
+from loading import Loading
 from DataLoader import DataLoader
 import configparser
+import flask
+import json
+from Secrets import get_secret
+from pyathena.error import OperationalError
+import os
 
 # Create a new dash object.
 app = Dash('Compliance Dashboard', suppress_callback_exceptions=True)
@@ -24,31 +31,13 @@ if len(sections) <= 0:
     # Cannot do anything without that.
     pass
 
+
 dataloader = None
-
-# Profile to use for the dash application.
-profile = 'uoa'
-
-# Set the correct dataloader.
-if profile in sections:
-    aws=config[profile]
-    dataloader = DataLoader(aws_access_key_id=aws['aws_access_key_id'],
-                            aws_secret_access_key=aws['aws_secret_access_key'],
-                            aws_session_token=aws['aws_session_token'] if 'aws_session_token' in aws else None,
-                            region_name=aws['region_name'],
-                            schema_name=aws['schema_name'],
-                            s3_staging_dir=aws['s3_staging_dir'],
-                            work_group=aws['workgroup'] if 'workgroup' in aws else None,
-                            cache=True if ('cache' in aws and aws['cache'] == 'true') else False)
-
-if dataloader == None:
-    # We don't have any data loader, need to do error handling
-    # and display the correct error message.
-    pass
+username = None # Stores the RStudio Connect username
 
 # Lay down the basic layout for the app.
 app.layout = html.Div(id='main_container', children=[
-    html.Center('Loading data from server. Sit tight!')
+    Loading('Loading data from server. Sit tight!')
 ])
 
 frameset = {}
@@ -59,16 +48,67 @@ frameset = {}
     Input('main_container', 'children')
 )
 def load_data(value):
-    print('main container callback called')
+    global username
+
+    # Get the RStudio Connect username
+    username = get_username()
+    aws = config['uoa']
+    if 'uoa' in sections:
+        aws = config['uoa']
+
+    if username is None:
+        return Error('Oh no something went wrong. Could not find your RStudio username (902)')
+
+    # Get the schema associated with this username from AWS SecretsManager
+    secret = get_secret(
+        username=username,
+        aws_access_key_id=aws['aws_access_key_id'],
+        aws_secret_access_key=aws['aws_secret_access_key']
+    )
+    if secret is None:
+        return Error('Whopps! Looks like your RStudio username is not associated with any SensorFabric Study (903)')
+
+    secret = json.loads(secret)
+    profile = secret.get('profile')
+
+    if profile == 'mdh':
+        print('Using profile mdh')
+        schema_name = secret.get('schema_name')
+        aws = {
+            'aws_access_key_id': secret.get('aws_access_key_id'),
+            'aws_secret_access_key': secret.get('aws_secret_access_key'),
+            'aws_session_token': secret.get('aws_session_token'),
+            'region_name': secret.get('region_name'),
+            's3_staging_dir': secret.get('s3_staging_dir'),
+            'workgroup': secret.get('workgroup')
+        }
+    else:
+        print('Using profile UOA AWS')
+        # Get username from the Rstudio Connect Environment.
+        schema_name = secret.get('schema_name')
+        aws=config[profile]
+
+    dataloader = DataLoader(aws_access_key_id=aws['aws_access_key_id'],
+                            aws_secret_access_key=aws['aws_secret_access_key'],
+                            aws_session_token=aws['aws_session_token'] if 'aws_session_token' in aws else None,
+                            region_name=aws['region_name'],
+                            schema_name=schema_name,
+                            s3_staging_dir=aws['s3_staging_dir'],
+                            work_group=aws['workgroup'] if 'workgroup' in aws else None,
+                            cache=True if ('cache' in aws and aws['cache'] == 'true') else False)
+
     # Load all the dataset.
-    frameset['sleep'] = dataloader.getSleep()
-    frameset['activity'] = dataloader.getActivity()
-    frameset['restinghr'] = dataloader.getRestingHR()
-    frameset['hrv'] = dataloader.getHRV()
-    frameset['participants'] = dataloader.getParticipants()
+    try:
+        frameset['sleep'] = dataloader.getSleep()
+        frameset['activity'] = dataloader.getActivity()
+        frameset['restinghr'] = dataloader.getRestingHR()
+        frameset['hrv'] = dataloader.getHRV()
+        frameset['participants'] = dataloader.getParticipants()
+    except OperationalError as er:
+        return Error('This is embarassing, but an error occurred when trying to fetch your dataset (904)')
 
     return html.Div([
-        html.H1(children='Compliance Dashboard for Fitbit'),
+        html.H1(children='Fitbit Compliance App'),
 
         dcc.Tabs(id='tabs-fitbit-sections', value='tab-overview', children=[
             dcc.Tab(label='Overview', value='tab-overview'),
@@ -78,9 +118,29 @@ def load_data(value):
             dcc.Tab(label='Heart Rate Variability', value='tab-hrv')
         ]),
 
-        html.Div(id='tabs-content')
+        html.Div(id='tabs-content'),
+
+        html.Hr(),
+        html.Div(id='project', children=[
+            html.P('Logged in as - {}'.format('local' if username is None else username)),
+            html.P('Viewing project - {}'.format(schema_name))
+        ])
      ])
 
+def get_credentials(req):
+    """
+    Get credentials of the current user who is accessing the dashboard.
+    """
+    credential_header = req.headers.get('RStudio-Connect-Credentials')
+    if not credential_header:
+        return {}
+    return json.loads(credential_header)
+
+def get_username():
+    user_metadata = get_credentials(flask.request)
+    username = user_metadata.get('user')
+
+    return username
 
 # Create a callback for the tabs.
 @app.callback(Output('tabs-content', 'children'),
@@ -100,4 +160,4 @@ def render_tab_content(tab):
         return html.P('{tab} tab has been selected'.format(tab=tab))
 
 if __name__ == '__main__':
-    app.run_server()
+    app.run_server(debug=True)

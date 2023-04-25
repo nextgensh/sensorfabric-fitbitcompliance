@@ -23,10 +23,8 @@ def createDataTable(frame):
     days_recorded = frame['days_recorded'].values
     calendar_days = frame['calendar_days'].values
     data_density = days_recorded / calendar_days
-    """
     for i in range(0, data_density.size):
         data_density[i] = dtrunc(data_density[i], d=2)
-    """
     frame['data_density'] = data_density
 
     # Sort the table by the data density metric.
@@ -36,6 +34,9 @@ def createDataTable(frame):
     return html.Div([
         dash_table.DataTable(
             id='sleepTable',
+            sort_action='native',
+            filter_action='native',
+            style_header={'font-weight':'bold'},
             columns=[
                 {'name':formatName(i), 'id':i}
                 for i in frame.columns

@@ -24,7 +24,7 @@ class DataLoader():
                             work_group=work_group,
                             cursor_class=PandasCursor
                             ).cursor()
-        self.cache = 3600 if cache else None
+        self.cache = 3600 if cache else 0
 
     def getSleep(self):
         query = """
@@ -90,7 +90,7 @@ class DataLoader():
     # TODO : Change this later to automatically pull from the enrolledParticipant table.
     def getParticipants(self):
         query = """
-           SELECT DISTINCT(participantidentifier) FROM fitbitactivitylogs
+           SELECT DISTINCT(participantidentifier) FROM fitbitdailydata
         """
 
         return self.cursor.execute(query, cache_expiration_time=self.cache).as_pandas()
