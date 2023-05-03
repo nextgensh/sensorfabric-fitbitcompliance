@@ -35,12 +35,16 @@ def Overview(frameset):
     # app and sync.
     today = datetime.now()
     sync = []   # 1 - Syncing is required, 0 - Syncing is not required.
+    last_sync_date = []  # Stores the date when we last got steps > 0 activity data from the users.
+    days_since_sync = []  # Stores how many days it has been since we got steps > 0 activity data.
     for pid in pids:
         prow = activity[activity['participantidentifier'] == pid]['end_date']
         if prow.shape[0] > 0:
             act_end_date = activity[activity['participantidentifier'] == pid]['end_date'].iloc[0]
+            last_sync_date += [act_end_date]
             act_end_date = datetime.strptime(act_end_date, '%Y-%m-%d')
             delta = (today - act_end_date)
+            days_since_sync += [delta.days]
             if delta.days >= 2:
                 # This needs to be marked as syncing required.
                 sync += [1]
@@ -48,6 +52,8 @@ def Overview(frameset):
                 sync += [0]
         else:
             sync += [0]
+            last_sync_date += ['NA']
+            days_since_sync += ['NA']
 
     # Method which checks if we have less than 80% sleep data as compared to activity data.
     # These participants might be taking off their device at night, or there might be an issue
@@ -72,6 +78,8 @@ def Overview(frameset):
 
     frame = pd.DataFrame({
         'participantidentifier': modified_pid,
+        'last_sync': last_sync_date,
+        'days_sync': days_since_sync,
         'sleep' : flags[0],
         'activity' : flags[1],
         'restinghr' : flags[2],
@@ -87,6 +95,8 @@ def Overview(frameset):
             style_header={'font-weight':'bold'},
             columns=[
                 {'name':'Participant', 'id':'participantidentifier'},
+                {'name':'Last Synced', 'id':'last_sync'},
+                {'name':'Days Since Sync', 'id':'days_sync'},
                 {'name':'Sleep', 'id':'sleep'},
                 {'name':'Activity', 'id':'activity'},
                 {'name':'Resting HR', 'id':'restinghr'},
