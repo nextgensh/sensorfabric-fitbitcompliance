@@ -22,16 +22,6 @@ import os
 # Create a new dash object.
 app = Dash('Compliance Dashboard', suppress_callback_exceptions=True)
 
-# Parse the configuration file.'
-config = configparser.ConfigParser()
-config.read('config.cfg')
-sections=config.sections()
-if len(sections) <= 0:
-    # Add error handling because the configuration file is missing.
-    # Cannot do anything without that.
-    pass
-
-
 dataloader = None
 username = None # Stores the RStudio Connect username
 
@@ -50,14 +40,18 @@ frameset = {}
 def load_data(value):
     global username
 
+    # Read from the environment variables to get the secret keys for AWS.
+    if not ('AWS_ACCESS_KEY' in os.environ and 'AWS_SECRET_KEY' in os.environ):
+        return Error('Oh no something went wrong. Could not set secret.')
+
+    # set the access and secret key.
+    aws = {
+        'aws_access_key_id' : os.environ['AWS_ACCESS_KEY'],
+        'aws_secret_access_key' : os.environ['AWS_SECRET_KEY']
+    }
+
     # Get the RStudio Connect username
     username = get_username()
-    aws = config['uoa']
-    if 'uoa' in sections:
-        aws = config['uoa']
-
-    if username is None:
-        return Error('Oh no something went wrong. Could not find your RStudio username (902)')
 
     # Get the schema associated with this username from AWS SecretsManager
     secret = get_secret(
@@ -69,31 +63,17 @@ def load_data(value):
         return Error('Whopps! Looks like your RStudio username is not associated with any SensorFabric Study (903)')
 
     secret = json.loads(secret)
-    profile = secret.get('profile')
 
-    if profile == 'mdh':
-        print('Using profile mdh')
-        schema_name = secret.get('schema_name')
-        aws = {
-            'aws_access_key_id': secret.get('aws_access_key_id'),
-            'aws_secret_access_key': secret.get('aws_secret_access_key'),
-            'aws_session_token': secret.get('aws_session_token'),
-            'region_name': secret.get('region_name'),
-            's3_staging_dir': secret.get('s3_staging_dir'),
-            'workgroup': secret.get('workgroup')
-        }
-    else:
-        print('Using profile UOA AWS')
-        # Get username from the Rstudio Connect Environment.
-        schema_name = secret.get('schema_name')
-        aws=config[profile]
+    schema_name = secret.get('schema_name')
+    aws['region_name'] = secret.get('region_name')
+    aws['workgroup'] = secret.get('workgroup')
 
     dataloader = DataLoader(aws_access_key_id=aws['aws_access_key_id'],
                             aws_secret_access_key=aws['aws_secret_access_key'],
                             aws_session_token=aws['aws_session_token'] if 'aws_session_token' in aws else None,
                             region_name=aws['region_name'],
                             schema_name=schema_name,
-                            s3_staging_dir=aws['s3_staging_dir'],
+                            s3_staging_dir=None,
                             work_group=aws['workgroup'] if 'workgroup' in aws else None,
                             cache=True if ('cache' in aws and aws['cache'] == 'true') else False)
 
@@ -160,4 +140,4 @@ def render_tab_content(tab):
         return html.P('{tab} tab has been selected'.format(tab=tab))
 
 if __name__ == '__main__':
-    app.run_server(debug=False)
+    app.run_server(debug=True)
