@@ -140,4 +140,4 @@ def render_tab_content(tab):
         return html.P('{tab} tab has been selected'.format(tab=tab))
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=False)
