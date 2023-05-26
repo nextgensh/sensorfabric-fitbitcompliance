@@ -53,6 +53,12 @@ def load_data(value):
     # Get the RStudio Connect username
     username = get_username()
 
+    # Check to see if the local environment variable C_USERNAME is set.
+    # Throw the application into debug mode.
+    if 'C_USERNAME' in os.environ:
+        username = os.environ['C_USERNAME']
+        print('Enabling debug mode.')
+
     # Get the schema associated with this username from AWS SecretsManager
     secret = get_secret(
         username=username,
@@ -85,6 +91,7 @@ def load_data(value):
         frameset['hrv'] = dataloader.getHRV()
         frameset['participants'] = dataloader.getParticipants()
     except OperationalError as er:
+        print(er)
         return Error('This is embarassing, but an error occurred when trying to fetch your dataset (904)')
 
     return html.Div([
@@ -140,4 +147,8 @@ def render_tab_content(tab):
         return html.P('{tab} tab has been selected'.format(tab=tab))
 
 if __name__ == '__main__':
-    app.run_server(debug=False)
+    # Switch the app into debug mode based on the environment variable.
+    if 'C_USERNAME' in os.environ:
+        app.run_server(debug=True)
+    else:
+        app.run_server(debug=False)
